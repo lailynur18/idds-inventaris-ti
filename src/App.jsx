@@ -1,7 +1,8 @@
+import { Button, setBrandTheme, TextField, Card} from '@idds/react';
 import { useState, useEffect } from 'react'
 import * as XLSX from 'xlsx'
 import './styles.css'
-
+const API = 'http://localhost:3001/api/barang';
 const dataAwal = [
   { kode: 'TI001', nama: 'Laptop Asus', kategori: 'Komputer', unit: 'Unit IT', tanggal: '2026-01-05', nilai: 8500000, status: 'Baik' },
   { kode: 'TI002', nama: 'Printer Epson', kategori: 'Printer', unit: 'Unit IT', tanggal: '2026-01-10', nilai: 2500000, status: 'Baik' },
@@ -54,7 +55,21 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('idds_inventaris_perangkat', JSON.stringify(barang))
   }, [barang])
-
+useEffect(() => {
+  fetch('http://localhost:3001/api/barang')
+    .then((res) => {
+      if (!res.ok) throw new Error('Gagal mengambil data SQL')
+      return res.json()
+    })
+    .then((data) => {
+      if (Array.isArray(data) && data.length > 0) {
+        setBarang(data)
+      }
+    })
+    .catch((err) => {
+      console.error('Koneksi SQL:', err.message)
+    })
+}, [])
   const hasil = barang.filter((item) =>
     [
       item.kode,
@@ -74,49 +89,83 @@ export default function App() {
     setForm({ ...form, [e.target.name]: e.target.value })
   }
 
-  function simpan(e) {
-    e.preventDefault()
+  async function simpan(e) {
+e.preventDefault();
 
-    const kode = form.kode.trim()
-    const nama = form.nama.trim()
+const kode = form.kode.trim();
+const nama = form.nama.trim();
 
-    if (!kode || !nama || !form.kategori || !form.unit || !form.tanggal) {
-      setPesan('Lengkapi semua data perangkat terlebih dahulu.')
-      return
-    }
+if (!kode || !nama || !form.kategori || !form.unit || !form.tanggal) {
+setPesan('Lengkapi semua data perangkat terlebih dahulu.');
+return;
+}
 
-    const duplikat = barang.some(
-      (item) => item.kode.toLowerCase() === kode.toLowerCase()
-        && item.kode !== kodeEdit
-    )
+const duplikat = barang.some(
+(item) =>
+item.kode.toLowerCase() === kode.toLowerCase() &&
+item.kode !== kodeEdit
+);
 
-    if (duplikat) {
-      setPesan('Kode perangkat sudah digunakan.')
-      return
-    }
+if (duplikat) {
+setPesan('Kode perangkat sudah digunakan.');
+return;
+}
 
-    const dataBaru = {
-      ...form,
-      kode,
-      nama,
-      nilai: Number(form.nilai) || 0,
-    }
+const dataBaru = {
+...form,
+kode,
+nama,
+nilai: Number(form.nilai) || 0,
+};
 
-    if (kodeEdit !== null) {
-      setBarang(
-        barang.map((item) =>
-          item.kode === kodeEdit ? dataBaru : item
-        )
-      )
-      setPesan('Data perangkat berhasil diperbarui.')
-    } else {
-      setBarang([...barang, dataBaru])
-      setPesan('Data perangkat berhasil ditambahkan.')
-    }
+try {
+const sedangEdit = kodeEdit !== null;
 
-    setForm(kosong)
-    setKodeEdit(null)
+const response = await fetch(
+  sedangEdit
+    ? `${API}/${encodeURIComponent(kodeEdit)}`
+    : API,
+  {
+    method: sedangEdit ? 'PUT' : 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(dataBaru),
   }
+);
+
+const teksRespons = await response.text();
+let hasilAPI = {};
+
+try {
+  hasilAPI = teksRespons ? JSON.parse(teksRespons) : {};
+} catch {
+  throw new Error(
+    `Respons server bukan JSON. Isi respons: ${teksRespons.slice(0, 200)}`
+  );
+}
+
+if (!response.ok) {
+  throw new Error(
+    hasilAPI.pesan || hasilAPI.error || 'Gagal menyimpan data.'
+  );
+}
+const responseData = await fetch(API);
+if (!responseData.ok) throw new Error('Gagal membaca data MySQL.');
+
+const dataDatabase = await responseData.json();
+setBarang(dataDatabase);
+
+setPesan(sedangEdit
+  ? 'Data berhasil diperbarui di MySQL.'
+  : 'Data berhasil ditambahkan ke MySQL.'
+);
+
+setForm(kosong);
+setKodeEdit(null);
+
+} catch (error) {
+  setPesan(`Gagal menyimpan ke MySQL: ${error.message}`);
+}
+}
 
   function editBarang(item) {
     setForm({ ...item, nilai: String(item.nilai) })
@@ -125,17 +174,44 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
-  function hapusBarang(kode) {
-    if (window.confirm('Yakin ingin menghapus perangkat ini?')) {
-      setBarang(barang.filter((item) => item.kode !== kode))
-      setPesan('Data perangkat berhasil dihapus.')
-
-      if (kodeEdit === kode) {
-        setForm(kosong)
-        setKodeEdit(null)
-      }
-    }
+  async function hapusBarang(kode) {
+  if (!window.confirm('Yakin ingin menghapus perangkat ini?')) {
+    return;
   }
+
+  try {
+    const response = await fetch(
+      `${API}/${encodeURIComponent(kode)}`,
+      { method: 'DELETE' }
+    );
+
+    const hasilAPI = await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        hasilAPI.pesan || hasilAPI.error || 'Gagal menghapus data.'
+      );
+    }
+
+    const responseData = await fetch(API);
+
+    if (!responseData.ok) {
+      throw new Error('Gagal membaca data MySQL.');
+    }
+
+    const dataDatabase = await responseData.json();
+    setBarang(dataDatabase);
+
+    setPesan('Data berhasil dihapus dari MySQL.');
+
+    if (kodeEdit === kode) {
+      setForm(kosong);
+      setKodeEdit(null);
+    }
+  } catch (error) {
+    setPesan(`Gagal menghapus dari MySQL: ${error.message}`);
+  }
+}
 
   function batalEdit() {
     setForm(kosong)
